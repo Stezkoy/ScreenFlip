@@ -1,4 +1,6 @@
-# ScreenFlip
+<p align="center">
+  <img src="img/logo.jpeg" alt="ScreenFlip" />
+</p>
 
 Утилита для обмена приложениями между двумя экранами **AYN Thor**
 
@@ -46,7 +48,15 @@ ScreenFlip перемещает верхние приложения с одно�
 
 ## Установка
 
-1. Установите подписанный release APK (`app-release.apk`).
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/Stezkoy/ScreenFlip">
+    <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="54" />
+  </a>
+</p>
+
+1. Установите подписанный release APK (`app-release.apk`) — или нажмите на
+   бейдж выше, чтобы добавить этот репозиторий в Obtainium для
+   автоматических обновлений.
 2. Откройте ScreenFlip и разрешите уведомления, если попросит.
 3. (Необязательно) Включите **Double-tap the AYN button** в разделе
    Triggers.

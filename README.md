@@ -1,4 +1,6 @@
-# ScreenFlip
+<p align="center">
+  <img src="img/logo.jpeg" alt="ScreenFlip" />
+</p>
 
 A dual-screen task-swap utility for the **AYN Thor**.
 
@@ -41,7 +43,14 @@ overlays!
 
 ## Installation
 
-1. Install the signed release APK (`app-release.apk`).
+<p align="center">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/Stezkoy/ScreenFlip">
+    <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="54" />
+  </a>
+</p>
+
+1. Install the signed release APK (`app-release.apk`), or tap the badge
+   above to add this repository to Obtainium for automatic updates.
 2. Open ScreenFlip and grant the notification permission if prompted.
 3. (Optional) Enable **Double-tap the AYN button** in the Triggers section.
 
