@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+.idea/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+app/release/
+*.apk
+*.aab
+tools/adb-probes/
+keystore/
+AGENTS.md
