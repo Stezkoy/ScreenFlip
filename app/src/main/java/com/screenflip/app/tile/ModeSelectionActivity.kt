@@ -20,8 +20,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +32,7 @@ import com.screenflip.app.MainActivity
 import com.screenflip.app.R
 import com.screenflip.app.ScreenFlipApp
 import com.screenflip.app.swap.SwapMode
+import com.screenflip.app.theme.ScreenFlipTheme
 
 /**
  * Translucent popup opened from the QS tile: the user picks the default
@@ -52,7 +51,7 @@ class ModeSelectionActivity : ComponentActivity() {
         setTheme(if (darkTheme) R.style.Theme_ScreenFlip_Dialog_Dark else R.style.Theme_ScreenFlip_Dialog_Light)
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
+            ScreenFlipTheme(darkTheme = darkTheme) {
                 ModeSelectionContent(
                     onDismiss = { finish() },
                     onModeSelected = { mode ->

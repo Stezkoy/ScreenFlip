@@ -3,6 +3,7 @@ package com.screenflip.app
 import android.app.Application
 import android.content.Intent
 import android.content.SharedPreferences
+import android.util.Log
 import com.screenflip.app.service.FlipService
 import com.screenflip.app.swap.SwapMode
 
@@ -27,10 +28,16 @@ class ScreenFlipApp : Application() {
 
     fun startFlipServiceIfNeeded() {
         val intent = Intent(this, FlipService::class.java).setAction(FlipService.ACTION_START)
-        startForegroundService(intent)
+        // A background process start (e.g. a tile / button broadcast) may be
+        // denied by the background-FGS-start policy; never crash the process
+        // for that - the trigger that needs the service starts it itself.
+        runCatching { startForegroundService(intent) }
+            .onFailure { Log.e(TAG, "Could not start FlipService", it) }
     }
 
     companion object {
+        private const val TAG = "ScreenFlipApp"
+
         const val PREFS_NAME = "screenflip_prefs"
         const val KEY_AYN_DOUBLE_TAP_ENABLED = "ayn_double_tap_enabled"
         const val KEY_THEME_MODE = "theme_mode"

@@ -68,21 +68,37 @@ object PServerSwapEngine {
             ?: return SwapResult.Failed("No second physical display found")
         Log.i(TAG, "Swapping displays, mode = $mode, bottom display id = $bottomId")
 
-        val raw0 = probeTopTask(0) ?: return SwapResult.Failed("Task probe for display 0 failed")
-        val rawB = probeTopTask(bottomId) ?: return SwapResult.Failed("Task probe for display $bottomId failed")
-        val topTaskId = parseTopTaskId(raw0)
-        val bottomTaskId = parseTopTaskId(rawB)
+        // Probe only what the requested mode needs: a failing probe of the
+        // untouched display must not abort a one-direction move.
+        val topTaskId = if (mode != SwapMode.BOTTOM_TO_TOP) {
+            val raw0 = probeTopTask(0)
+                ?: return SwapResult.Failed("Task probe for display 0 failed")
+            parseTopTaskId(raw0)
+        } else {
+            null
+        }
+        val bottomTaskId = if (mode != SwapMode.TOP_TO_BOTTOM) {
+            val rawB = probeTopTask(bottomId)
+                ?: return SwapResult.Failed("Task probe for display $bottomId failed")
+            parseTopTaskId(rawB)
+        } else {
+            null
+        }
         Log.i(TAG, "Top tasks: display 0 [$topTaskId], display $bottomId [$bottomTaskId]")
         return when (mode) {
             SwapMode.SWAP -> when {
                 topTaskId == null && bottomTaskId == null -> SwapResult.NoTasks
                 topTaskId != null && bottomTaskId != null -> {
-                    val o1 = runMove(topTaskId, bottomId) ?: return SwapResult.Failed("move-stack $topTaskId -> $bottomId failed")
-                    val o2 = runMove(bottomTaskId, 0) ?: return SwapResult.Failed("move-stack $bottomTaskId -> 0 failed")
-                    if (o1.contains("Exception") || o2.contains("Exception")) {
-                        SwapResult.Partial
-                    } else {
-                        SwapResult.Swapped
+                    val o1 = runMove(topTaskId, bottomId)
+                        ?: return SwapResult.Failed("move-stack $topTaskId -> $bottomId failed")
+                    val o2 = runMove(bottomTaskId, 0)
+                        ?: return SwapResult.Partial
+                    val movedTop = !o1.contains("Exception")
+                    val movedBottom = !o2.contains("Exception")
+                    when {
+                        movedTop && movedBottom -> SwapResult.Swapped
+                        movedTop || movedBottom -> SwapResult.Partial
+                        else -> SwapResult.Failed("move-stack failed")
                     }
                 }
                 topTaskId != null -> {
@@ -137,18 +153,17 @@ object PServerSwapEngine {
      * expects).
      *
      * The display is located by walking the `Display #N` headers: the gate
-     * variable is set to 0 only inside the target display's section, and
-     * `exit` stops the scan right after the first hit.
+     * is closed on every header and opened only on the exact target header
+     * (`#4` must not match `#40`), and `exit` stops the scan right after the
+     * first hit. Closing the gate on every header matters: when the target
+     * display has no resumed activity, a later display's section must not
+     * leak its task into the result.
      *
      * The command is deliberately kept far below the firmware shell's
-     * ~256-char command limit (~160 chars for a two-digit display id).
+     * ~256-char command limit (~165 chars for a two-digit display id).
      */
     internal fun topTaskCommand(displayId: Int): String {
-        val gate = if (displayId == 0) {
-            "/Display #0/{d=0} /Display #[1-9]/{d=9} d==0&&"
-        } else {
-            "/Display #0/{d=9} /Display #$displayId/{d=0} d==0&&"
-        }
+        val gate = "/Display #/{d=9} /Display #$displayId[^0-9]/{d=0} d==0&&"
         return "dumpsys activity activities | awk '" + gate +
             "/topResumed/{if(match($0,/\\} t[0-9]+/))print substr($0,RSTART+3,RLENGTH-3);exit}'"
     }
@@ -196,18 +211,23 @@ object PServerSwapEngine {
     /**
      * Returns the id of the second physical display (the bottom panel).
      * Display ids are not stable across boots, so they are resolved at
-     * runtime. The authoritative source is `am display id` (the shell's
-     * activity-manager view, exactly what `am display move-stack` targets);
-     * DisplayManager is used as a fallback and to size the candidates.
-     * Virtual / cast displays are filtered out by name.
+     * runtime through [DisplayManager]; its ids are the logical display ids
+     * that `am display move-stack` targets.
+     *
+     * `am display id` is NOT a valid subcommand on this firmware (verified
+     * on device: "Error: unknown command 'id'"), so the vendor shell must
+     * not be used for display discovery.
+     *
+     * Virtual / cast displays are filtered out by name, then the smallest
+     * panel wins so the secondary Thor screen is picked over a virtual one.
      */
     fun resolveBottomDisplayId(context: Context): Int? {
         val displayManager = context.getSystemService(DisplayManager::class.java)
-        val amIds = parseAmDisplayIds(
-            PServerClient.exec("am display id", wait = true).getOrNull()
-        ).filter { it != 0 }
-        val dmIds = displayManager.displays.map { it.displayId }.filter { it != 0 }
-        val candidates = (amIds + dmIds).distinct().sorted()
+        val candidates = displayManager.displays
+            .map { it.displayId }
+            .filter { it != 0 }
+            .distinct()
+            .sorted()
         if (candidates.isEmpty()) return null
         // Prefer candidates with known metrics, smallest physical panel wins.
         val sized = candidates.mapNotNull { id ->
@@ -220,23 +240,14 @@ object PServerSwapEngine {
         return if (sized.isEmpty()) candidates.first() else sized.minByOrNull { it.second }?.first
     }
 
-    private val AM_DISPLAY_ID = Regex("""Display id (\d+)""")
-
-    /** Parses the `am display id` output into a list of display ids. */
-    internal fun parseAmDisplayIds(output: String?): List<Int> {
-        if (output.isNullOrBlank()) return emptyList()
-        return output.lineSequence()
-            .mapNotNull { AM_DISPLAY_ID.find(it.trim())?.groupValues?.get(1)?.toIntOrNull() }
-            .toList()
-    }
-
     private val CAST_DISPLAY_KEYWORDS: List<String> = listOf(
         "castdisplay", "virtualdisplay", "screencast", "screen cast", "cast",
         "chromecast", "android auto", "carprojection", "nearby", "companion"
     )
 
-    private fun looksLikeCastDisplay(name: CharSequence): Boolean {
-        val trimmed = name.toString().trim().lowercase(Locale.US)
+    private fun looksLikeCastDisplay(name: CharSequence?): Boolean {
+        val trimmed = name?.toString()?.trim()?.lowercase(Locale.US).orEmpty()
+        if (trimmed.isEmpty()) return false
         return trimmed in CAST_DISPLAY_KEYWORDS ||
             CAST_DISPLAY_KEYWORDS.any { trimmed.contains(it) }
     }

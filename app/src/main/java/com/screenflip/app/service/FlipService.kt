@@ -10,10 +10,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.os.Build
+import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.service.quicksettings.TileService
 import android.util.Log
 import android.widget.Toast
 import com.screenflip.app.MainActivity
@@ -22,7 +23,11 @@ import com.screenflip.app.ScreenFlipApp
 import com.screenflip.app.swap.PServerSwapEngine
 import com.screenflip.app.swap.SwapResult
 import com.screenflip.app.swap.SwapMode
+import com.screenflip.app.tile.SwapTileService
 import com.screenflip.app.trigger.TccButtonStateMachine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.Executors
 
 /**
@@ -56,6 +61,11 @@ class FlipService : Service() {
         @Volatile
         var instance: FlipService? = null
             private set
+
+        private val _lastSwapMessage = MutableStateFlow<String?>(null)
+
+        /** Human-readable outcome of the most recent swap (null before one). */
+        val lastSwapMessage: StateFlow<String?> = _lastSwapMessage.asStateFlow()
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -65,8 +75,6 @@ class FlipService : Service() {
     private val tccStateMachine = TccButtonStateMachine()
     @Volatile
     private var swapInProgress = false
-    @Volatile
-    private var lastSwapMessage: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,6 +83,9 @@ class FlipService : Service() {
         instance = this
         createNotificationChannel()
         registerTccReceiver()
+        // The QS tile derives its active state from [instance]; refresh it
+        // when the service comes up (e.g. a tap on a dead tile starts it).
+        refreshTileState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -124,13 +135,21 @@ class FlipService : Service() {
 
     private fun registerTccReceiver() {
         val filter = IntentFilter(TCC_BUTTON_ACTION)
-        if (Build.VERSION.SDK_INT >= 34) {
-            registerReceiver(
-                tccReceiver, filter, android.Manifest.permission.DUMP,
-                null, Context.RECEIVER_EXPORTED
+        // minSdk is 33, so the flags overload is always available; the flag
+        // is mandatory for non-system broadcasts on Android 14+.
+        registerReceiver(
+            tccReceiver, filter, android.Manifest.permission.DUMP,
+            null, Context.RECEIVER_EXPORTED
+        )
+    }
+
+    /** Asks SystemUI to re-query the tile so its state follows the service. */
+    private fun refreshTileState() {
+        runCatching {
+            TileService.requestListeningState(
+                this,
+                android.content.ComponentName(this, SwapTileService::class.java)
             )
-        } else {
-            registerReceiver(tccReceiver, filter, android.Manifest.permission.DUMP, null)
         }
     }
 
@@ -151,9 +170,6 @@ class FlipService : Service() {
         }
     }
 
-    /** Returns the human-readable outcome of the most recent swap. */
-    fun getLastSwapMessage(): String? = lastSwapMessage
-
     /**
      * Performs the screen swap on a background thread and reports the
      * outcome with a toast on the main thread.
@@ -162,11 +178,18 @@ class FlipService : Service() {
         if (swapInProgress) return
         swapInProgress = true
         val context = applicationContext
-        swapExecutor.execute {
-            val result = PServerSwapEngine.swap(context, mode)
+        val work = Runnable {
+            // The engine normally reports failures as SwapResult, but an
+            // unexpected throwable must not leave swapInProgress stuck.
+            val result = try {
+                PServerSwapEngine.swap(context, mode)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Swap crashed", t)
+                SwapResult.Failed(t.message ?: t.javaClass.simpleName)
+            }
             mainHandler.post {
                 swapInProgress = false
-                if (this@FlipService != null) {
+                if (instance === this@FlipService) {
                     val message = when (result) {
                         is SwapResult.Swapped ->
                             context.getString(R.string.toast_swapped)
@@ -187,10 +210,17 @@ class FlipService : Service() {
                         is SwapResult.Failed ->
                             context.getString(R.string.toast_failed, result.reason)
                     }
-                    lastSwapMessage = message
+                    _lastSwapMessage.value = message
                     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+        try {
+            swapExecutor.execute(work)
+        } catch (t: Throwable) {
+            // Service is being destroyed (executor shut down).
+            swapInProgress = false
+            Log.e(TAG, "Cannot run swap", t)
         }
     }
 
@@ -224,21 +254,30 @@ class FlipService : Service() {
             .setContentIntent(openIntent)
             // Three independent actions: each runs its exact mode, regardless
             // of the configured default (the QS tile tap uses the default).
-            .addAction(0, getString(R.string.mode_swap), swapModeAction(1, SwapMode.SWAP.key))
-            .addAction(1, getString(R.string.mode_top_to_bottom), swapModeAction(2, SwapMode.TOP_TO_BOTTOM.key))
-            .addAction(2, getString(R.string.mode_bottom_to_top), swapModeAction(3, SwapMode.BOTTOM_TO_TOP.key))
+            .addAction(swapModeAction(1, SwapMode.SWAP.key, R.string.mode_swap))
+            .addAction(swapModeAction(2, SwapMode.TOP_TO_BOTTOM.key, R.string.mode_top_to_bottom))
+            .addAction(swapModeAction(3, SwapMode.BOTTOM_TO_TOP.key, R.string.mode_bottom_to_top))
             .build()
     }
 
-    private fun swapModeAction(requestCode: Int, modeKey: String): PendingIntent {
+    private fun swapModeAction(
+        requestCode: Int,
+        modeKey: String,
+        titleRes: Int
+    ): Notification.Action {
         val intent = Intent(this, FlipService::class.java)
             .setAction(ACTION_SWAP)
             .putExtra(EXTRA_SWAP_MODE, modeKey)
-        return PendingIntent.getService(
+        val pendingIntent = PendingIntent.getService(
             this,
             requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        return Notification.Action.Builder(
+            Icon.createWithResource(this, R.drawable.ic_tile_swap),
+            getString(titleRes),
+            pendingIntent
+        ).build()
     }
 }

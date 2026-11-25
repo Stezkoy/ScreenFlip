@@ -3,6 +3,7 @@ package com.screenflip.app.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.screenflip.app.service.FlipService
 
 /**
@@ -17,6 +18,10 @@ import com.screenflip.app.service.FlipService
  */
 class TccKeyReceiver : BroadcastReceiver() {
 
+    private companion object {
+        const val TAG = "TccKeyReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != FlipService.TCC_BUTTON_ACTION) return
         if (FlipService.instance != null) {
@@ -30,6 +35,7 @@ class TccKeyReceiver : BroadcastReceiver() {
             .setAction(FlipService.ACTION_TCC_KEY)
             .putExtra(FlipService.EXTRA_KEY_ACTION_DOWN, keyActionDown)
             .putExtra(FlipService.EXTRA_IS_LONG_PRESS, isLongPress)
-        context.startForegroundService(startIntent)
+        runCatching { context.startForegroundService(startIntent) }
+            .onFailure { Log.e(TAG, "Could not start FlipService for TCC event", it) }
     }
 }

@@ -2,7 +2,6 @@ package com.screenflip.app.tile
 
 import android.content.ComponentName
 import android.content.Intent
-import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.screenflip.app.R
@@ -28,13 +27,9 @@ class SwapTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val swapIntent = Intent(this, FlipService::class.java).setAction(FlipService.ACTION_SWAP)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(swapIntent)
-        } else {
-            startService(swapIntent)
-        }
+        startForegroundService(swapIntent)
         // A click on a dead tile restarts the process (FlipService comes up
-        // in Application.onCreate) - refresh the highlighted state.
+        // in Application.onCreate and refreshes the tile once it is alive).
         updateTileState()
     }
 

@@ -5,22 +5,25 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -30,17 +33,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
@@ -50,8 +51,10 @@ import com.screenflip.app.BuildConfig
 import com.screenflip.app.service.FlipService
 import com.screenflip.app.swap.PServerClient
 import com.screenflip.app.swap.SwapMode
+import com.screenflip.app.theme.ScreenFlipTheme
 import com.screenflip.app.update.UpdateManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -63,15 +66,12 @@ class MainActivity : ComponentActivity() {
     // Initialised without touching the context: during activity
     // instantiation the base context is still null, so
     // checkSelfPermission() cannot be called here (it would NPE).
-    private val notificationPermissionGranted =
-        mutableStateOf(Build.VERSION.SDK_INT < 33)
+    private val notificationPermissionGranted = mutableStateOf(false)
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             notificationPermissionGranted.value = hasNotificationPermission()
         }
-
-    private var isThemeRecreate = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,24 +79,37 @@ class MainActivity : ComponentActivity() {
         // Rate-limited (24h) automatic check for a newer GitHub release.
         UpdateManager.init(this)
         UpdateManager.checkForUpdates(force = false)
-        applyThemeFromPrefs()
+        val darkTheme = applyThemeFromPrefs()
+        // targetSdk 35 forces edge-to-edge on Android 15; opt in explicitly
+        // on every version and let the Compose root apply the insets.
+        enableEdgeToEdge(
+            statusBarStyle = systemBarStyle(darkTheme),
+            navigationBarStyle = systemBarStyle(darkTheme)
+        )
         setContent {
             MainScreen(
                 hasNotificationPermission = notificationPermissionGranted.value,
                 onRequestNotifications = {
-                    if (Build.VERSION.SDK_INT >= 33) {
-                        requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
+                    requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 },
                 onThemeChanged = {
                     // Full recreate so the window decor / status bar pick up
                     // the new theme, not only the Compose content.
-                    isThemeRecreate = true
                     recreate()
                 }
             )
         }
     }
+
+    private fun systemBarStyle(darkTheme: Boolean): SystemBarStyle =
+        if (darkTheme) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
 
     override fun onResume() {
         super.onResume()
@@ -106,11 +119,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasNotificationPermission(): Boolean =
-        Build.VERSION.SDK_INT < 33 ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun applyThemeFromPrefs() {
+    /** Applies the persisted theme and returns whether it is a dark one. */
+    private fun applyThemeFromPrefs(): Boolean {
         val mode = ScreenFlipApp.prefs.getString(
             ScreenFlipApp.KEY_THEME_MODE, ScreenFlipApp.THEME_SYSTEM
         )
@@ -121,6 +134,7 @@ class MainActivity : ComponentActivity() {
                 Configuration.UI_MODE_NIGHT_YES
         }
         setTheme(if (dark) R.style.Theme_ScreenFlip_Dark else R.style.Theme_ScreenFlip)
+        return dark
     }
 }
 
@@ -136,7 +150,6 @@ private fun MainScreen(
             ScreenFlipApp.prefs.getBoolean(ScreenFlipApp.KEY_AYN_DOUBLE_TAP_ENABLED, false)
         )
     }
-    var lastSwapMessage by remember { mutableStateOf<String?>(null) }
     var themeMode by remember {
         mutableStateOf(
             ScreenFlipApp.prefs.getString(
@@ -148,6 +161,8 @@ private fun MainScreen(
     var aynMode by remember { mutableStateOf(ScreenFlipApp.aynSwapMode()) }
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val lastSwapMessage by FlipService.lastSwapMessage.collectAsState()
     val autoUpdateCheckEnabled by UpdateManager.autoUpdateCheckEnabled.collectAsState()
     val updateAvailable by UpdateManager.updateAvailable.collectAsState()
     val latestReleaseInfo by UpdateManager.latestReleaseInfo.collectAsState()
@@ -189,26 +204,21 @@ private fun MainScreen(
     }
 
     fun checkPserver() {
-        pserverAvailable = PServerClient.isAvailable()
-        lastSwapMessage = FlipService.instance?.getLastSwapMessage()
+        scope.launch {
+            pserverAvailable = withContext(Dispatchers.IO) { PServerClient.isAvailable() }
+        }
     }
 
     // Check PServer availability right after entering the app so the
     // diagnostics status is visible without pressing "Check now".
     LaunchedEffect(Unit) {
-        val available = withContext(Dispatchers.IO) { PServerClient.isAvailable() }
-        pserverAvailable = available
-        lastSwapMessage = FlipService.instance?.getLastSwapMessage()
+        pserverAvailable = withContext(Dispatchers.IO) { PServerClient.isAvailable() }
     }
 
     fun swapNow() {
         val service = FlipService.instance
         if (service != null) {
             service.performSwap()
-            // Refresh the last result shortly after the (async) swap finishes.
-            Handler(Looper.getMainLooper()).postDelayed({
-                lastSwapMessage = service.getLastSwapMessage()
-            }, 1_500)
         } else {
             // The service is started by Application/BootReceiver, so this is
             // only a safety net (e.g. after the user force-stopped it).
@@ -219,10 +229,12 @@ private fun MainScreen(
         }
     }
 
-    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
+    ScreenFlipTheme(darkTheme = darkTheme) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -267,11 +279,8 @@ private fun MainScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    modeChips(
+                ChipFlow {
+                    ModeChips(
                         selected = mainMode,
                         onSelect = { setMainMode(it) }
                     )
@@ -281,11 +290,8 @@ private fun MainScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    modeChips(
+                ChipFlow {
+                    ModeChips(
                         selected = aynMode,
                         onSelect = { setAynMode(it) }
                     )
@@ -341,10 +347,7 @@ private fun MainScreen(
                     text = stringResource(R.string.section_theme),
                     style = MaterialTheme.typography.titleMedium
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                ChipFlow {
                     FilterChip(
                         selected = themeMode == ScreenFlipApp.THEME_SYSTEM,
                         onClick = { setThemeMode(ScreenFlipApp.THEME_SYSTEM) },
@@ -380,8 +383,8 @@ private fun MainScreen(
                         null -> stringResource(R.string.pserver_unknown)
                     },
                     color = when (pserverAvailable) {
-                        true -> Color(0xFF2E7D32)
-                        false -> Color(0xC62828)
+                        true -> MaterialTheme.colorScheme.primary
+                        false -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurface
                     }
                 )
@@ -433,8 +436,8 @@ private fun MainScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         updateAvailable -> MaterialTheme.colorScheme.primary
-                        updateCheckError != null -> Color(0xC62828)
-                        latestReleaseInfo != null -> Color(0xFF2E7D32)
+                        updateCheckError != null -> MaterialTheme.colorScheme.error
+                        latestReleaseInfo != null -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
@@ -487,11 +490,27 @@ private fun MainScreen(
 }
 
 /**
+ * Lays out chips in rows that wrap instead of clipping: the Russian labels
+ * ("Поменять местами" / "Сверху вниз") do not fit one line on a phone.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@androidx.compose.runtime.Composable
+private fun ChipFlow(content: @androidx.compose.runtime.Composable () -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        content()
+    }
+}
+
+/**
  * The three swap-mode chips. [selected] highlights the active mode, tapping
  * a chip reports it through [onSelect].
  */
 @androidx.compose.runtime.Composable
-private fun modeChips(selected: SwapMode, onSelect: (SwapMode) -> Unit) {
+private fun ModeChips(selected: SwapMode, onSelect: (SwapMode) -> Unit) {
     FilterChip(
         selected = selected == SwapMode.SWAP,
         onClick = { onSelect(SwapMode.SWAP) },

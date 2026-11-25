@@ -22,14 +22,16 @@ overlays!
     the status line)
   - Double-tap of the physical AYN / Dual-Screen button (within 0.5 s, off
     by default)
-- **Light / dark / system theme** with persistence
+- **Light / dark / system theme** with persistence and the system
+  (Material You) accent color
 - **PServer diagnostics** — one-tap check that the OEM swap backend is
   present on the device
 
 ## How it works
 
-1. Resolves the bottom display id at runtime (`am display id` +
-   `DisplayManager` — ids are not stable across reboots).
+1. Resolves the bottom display id at runtime through `DisplayManager`
+   (ids are not stable across reboots; `am display id` is not available
+   on this firmware).
 2. Probes the top task id of each display out of `dumpsys activity
    activities` with a short `awk` pipeline (the vendor shell truncates
    commands longer than ~256 chars, so each probe stays far below that).

@@ -14,14 +14,29 @@ class PServerSwapEngineTest {
     @Test
     fun `top task command targets the requested display`() {
         val cmd0 = PServerSwapEngine.topTaskCommand(0)
-        assertTrue(cmd0.contains("/Display #0/{d=0}"))
-        assertTrue(cmd0.contains("/Display #[1-9]/{d=9}"))
+        assertTrue(cmd0.contains("/Display #/{d=9}"))
+        assertTrue(cmd0.contains("/Display #0[^0-9]/{d=0}"))
         val cmd4 = PServerSwapEngine.topTaskCommand(4)
-        assertTrue(cmd4.contains("/Display #0/{d=9}"))
-        assertTrue(cmd4.contains("/Display #4/{d=0}"))
+        assertTrue(cmd4.contains("/Display #/{d=9}"))
+        assertTrue(cmd4.contains("/Display #4[^0-9]/{d=0}"))
         assertTrue(cmd0.contains("dumpsys activity activities | awk"))
         assertTrue(cmd0.contains("/topResumed/"))
         assertTrue(cmd0.endsWith("print substr(${'$'}0,RSTART+3,RLENGTH-3);exit}'"))
+    }
+
+    @Test
+    fun `top task command closes the gate before matching the target`() {
+        // Every display header must close the gate, otherwise a later
+        // display's section would leak its top task when the target display
+        // has no resumed activity.
+        for (id in 0..99) {
+            val cmd = PServerSwapEngine.topTaskCommand(id)
+            val reset = cmd.indexOf("/Display #/{d=9}")
+            val open = cmd.indexOf("/Display #$id[^0-9]/{d=0}")
+            assertTrue("display $id is missing the reset rule", reset >= 0)
+            assertTrue("display $id is missing the open rule", open >= 0)
+            assertTrue("display $id opens before resetting", reset < open)
+        }
     }
 
     @Test
