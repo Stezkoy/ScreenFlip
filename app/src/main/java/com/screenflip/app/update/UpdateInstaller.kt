@@ -161,11 +161,10 @@ object UpdateInstaller {
             } catch (e: Exception) {
                 part.delete()
                 Log.e(TAG, "Download failed", e)
+                // Technical details stay in logcat; the dialog shows a
+                // localized message the user can act on.
                 _downloadState.value = DownloadState.Failed(
-                    appContext.getString(
-                        R.string.update_download_failed,
-                        e.message ?: e.javaClass.simpleName
-                    )
+                    appContext.getString(R.string.update_download_failed)
                 )
             } finally {
                 activeConnection = null
@@ -238,10 +237,7 @@ object UpdateInstaller {
             } catch (e: Exception) {
                 Log.e(TAG, "Install failed", e)
                 _installState.value = InstallState.Failed(
-                    appContext.getString(
-                        R.string.update_install_failed,
-                        e.message ?: e.javaClass.simpleName
-                    )
+                    appContext.getString(R.string.update_install_failed)
                 )
             }
         }
@@ -267,10 +263,7 @@ object UpdateInstaller {
             else -> {
                 Log.e(TAG, "Install failed: status=$status message=$message")
                 _installState.value = InstallState.Failed(
-                    context.getString(
-                        R.string.update_install_failed,
-                        message ?: "status $status"
-                    )
+                    context.getString(R.string.update_install_failed)
                 )
             }
         }

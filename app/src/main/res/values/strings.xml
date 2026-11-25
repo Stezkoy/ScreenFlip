@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ScreenFlip</string>
-    <string name="tile_label">Swap screens</string>
     <string name="tile_dialog_title">Default swap action</string>
     <string name="tile_open_app">Open ScreenFlip</string>
     <string name="tile_mode_saved">Default action: %1$s</string>
     <string name="notification_channel_name">ScreenFlip service</string>
-    <string name="notification_channel_description">Keeps the swap triggers (QS tile, AYN button) alive</string>
+    <string name="notification_channel_description">Keeps the Quick Settings tile and the AYN button working</string>
     <string name="notification_text">Dual-screen swap is ready</string>
-    <string name="notification_action_swap">Swap screens</string>
     <string name="section_diagnostics">Diagnostics</string>
     <string name="section_swap">Swap</string>
     <string name="section_actions">Actions</string>
@@ -20,17 +18,17 @@
     <string name="mode_bottom_to_top">Bottom → top</string>
     <string name="pserver_unknown">PServer status unknown</string>
     <string name="pserver_available">PServerBinder is available</string>
-    <string name="pserver_unavailable">PServerBinder is NOT available. ScreenFlip requires the AYN Thor Odin firmware.</string>
+    <string name="pserver_unavailable">PServerBinder is NOT available. ScreenFlip requires the Odin firmware for AYN Thor.</string>
     <string name="button_check">Check now</string>
     <string name="button_swap_now">Swap screens now</string>
     <string name="button_grant_notifications">Allow notifications</string>
     <string name="ayn_double_tap_label">Double-tap the AYN button</string>
-    <string name="ayn_double_tap_hint">Press the physical AYN / Dual-Screen button twice in a row (within 0.5s) to run the action. Off by default.</string>
+    <string name="ayn_double_tap_hint">Press the physical AYN / Dual-Screen button twice in a row (within 0.5 s) to run the action. Off by default.</string>
     <string name="section_theme">Theme</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
-    <string name="notifications_hint">The notification provides a one-tap swap action and keeps the service alive.</string>
+    <string name="notifications_hint">The notification provides a one-tap swap action and keeps the service running.</string>
     <string name="toast_swapped">Screens swapped</string>
     <string name="toast_swapped_partial">App moved to the other screen</string>
     <string name="toast_moved_down">App moved to the bottom screen</string>
@@ -39,6 +37,11 @@
     <string name="toast_no_top_app">No app on the top screen</string>
     <string name="toast_no_bottom_app">No app on the bottom screen</string>
     <string name="toast_failed">Swap failed: %1$s</string>
+    <string name="swap_failed_no_pserver">PServerBinder is not available</string>
+    <string name="swap_failed_no_second_display">second display not found</string>
+    <string name="swap_failed_no_top_app">no app on the top screen</string>
+    <string name="swap_failed_no_bottom_app">no app on the bottom screen</string>
+    <string name="swap_failed_move">the system rejected the move</string>
     <string name="section_updates">Updates</string>
     <string name="auto_update_check">Automatic update check</string>
     <string name="check_for_updates">Check for updates</string>
@@ -70,8 +73,8 @@
     <string name="update_dialog_later">Later</string>
     <string name="update_dialog_retry">Retry</string>
     <string name="update_dialog_open_github">Open on GitHub</string>
-    <string name="update_no_apk">This release has no APK asset.</string>
-    <string name="update_download_failed">Download failed: %1$s</string>
-    <string name="update_install_failed">Install failed: %1$s</string>
+    <string name="update_no_apk">This release has no APK file.</string>
+    <string name="update_download_failed">Could not download the update. Check your connection and try again.</string>
+    <string name="update_install_failed">Could not install the update.</string>
     <string name="update_install_no_file">The update file is not downloaded yet.</string>
 </resources>

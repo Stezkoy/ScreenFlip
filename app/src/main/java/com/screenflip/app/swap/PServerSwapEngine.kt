@@ -41,6 +41,14 @@ object PServerSwapEngine {
     private const val TAG = "PServerSwapEngine"
     private const val EXEC_TIMEOUT_MS = 10_000L
 
+    // Failure reasons. They are technical identifiers: the service maps the
+    // known ones to localized text (see swapFailureStringRes) and only the
+    // raw vendor-shell errors are shown verbatim.
+    internal const val FAILURE_NO_PSERVER = "PServerBinder service not available"
+    internal const val FAILURE_NO_SECOND_DISPLAY = "No second physical display found"
+    internal const val FAILURE_PROBE_PREFIX = "Task probe for display "
+    internal const val FAILURE_MOVE_PREFIX = "move-stack "
+
     /**
      * Swaps the top foreground tasks of the two displays.
      *
@@ -62,24 +70,24 @@ object PServerSwapEngine {
      */
     fun swap(context: Context, mode: SwapMode = SwapMode.SWAP): SwapResult {
         if (!PServerClient.isAvailable()) {
-            return SwapResult.Failed("PServerBinder service not available")
+            return SwapResult.Failed(FAILURE_NO_PSERVER)
         }
         val bottomId = resolveBottomDisplayId(context)
-            ?: return SwapResult.Failed("No second physical display found")
+            ?: return SwapResult.Failed(FAILURE_NO_SECOND_DISPLAY)
         Log.i(TAG, "Swapping displays, mode = $mode, bottom display id = $bottomId")
 
         // Probe only what the requested mode needs: a failing probe of the
         // untouched display must not abort a one-direction move.
         val topTaskId = if (mode != SwapMode.BOTTOM_TO_TOP) {
             val raw0 = probeTopTask(0)
-                ?: return SwapResult.Failed("Task probe for display 0 failed")
+                ?: return SwapResult.Failed("${FAILURE_PROBE_PREFIX}0 failed")
             parseTopTaskId(raw0)
         } else {
             null
         }
         val bottomTaskId = if (mode != SwapMode.TOP_TO_BOTTOM) {
             val rawB = probeTopTask(bottomId)
-                ?: return SwapResult.Failed("Task probe for display $bottomId failed")
+                ?: return SwapResult.Failed("${FAILURE_PROBE_PREFIX}$bottomId failed")
             parseTopTaskId(rawB)
         } else {
             null
@@ -90,7 +98,7 @@ object PServerSwapEngine {
                 topTaskId == null && bottomTaskId == null -> SwapResult.NoTasks
                 topTaskId != null && bottomTaskId != null -> {
                     val o1 = runMove(topTaskId, bottomId)
-                        ?: return SwapResult.Failed("move-stack $topTaskId -> $bottomId failed")
+                        ?: return SwapResult.Failed("${FAILURE_MOVE_PREFIX}$topTaskId -> $bottomId failed")
                     val o2 = runMove(bottomTaskId, 0)
                         ?: return SwapResult.Partial
                     val movedTop = !o1.contains("Exception")
@@ -98,11 +106,11 @@ object PServerSwapEngine {
                     when {
                         movedTop && movedBottom -> SwapResult.Swapped
                         movedTop || movedBottom -> SwapResult.Partial
-                        else -> SwapResult.Failed("move-stack failed")
+                        else -> SwapResult.Failed("${FAILURE_MOVE_PREFIX}failed")
                     }
                 }
                 topTaskId != null -> {
-                    val o = runMove(topTaskId, bottomId) ?: return SwapResult.Failed("move-stack failed")
+                    val o = runMove(topTaskId, bottomId) ?: return SwapResult.Failed("${FAILURE_MOVE_PREFIX}failed")
                     if (o.contains("Exception")) {
                         SwapResult.Failed(o.take(120))
                     } else {
@@ -111,7 +119,7 @@ object PServerSwapEngine {
                 }
                 else -> {
                     val v = bottomTaskId ?: return SwapResult.NoTasks
-                    val o = runMove(v, 0) ?: return SwapResult.Failed("move-stack failed")
+                    val o = runMove(v, 0) ?: return SwapResult.Failed("${FAILURE_MOVE_PREFIX}failed")
                     if (o.contains("Exception")) {
                         SwapResult.Failed(o.take(120))
                     } else {
@@ -122,7 +130,7 @@ object PServerSwapEngine {
             SwapMode.TOP_TO_BOTTOM -> if (topTaskId == null) {
                 SwapResult.NoTasks
             } else {
-                val o = runMove(topTaskId, bottomId) ?: return SwapResult.Failed("move-stack failed")
+                val o = runMove(topTaskId, bottomId) ?: return SwapResult.Failed("${FAILURE_MOVE_PREFIX}failed")
                 if (o.contains("Exception")) {
                     SwapResult.Failed(o.take(120))
                 } else {
@@ -132,7 +140,7 @@ object PServerSwapEngine {
             SwapMode.BOTTOM_TO_TOP -> if (bottomTaskId == null) {
                 SwapResult.NoTasks
             } else {
-                val o = runMove(bottomTaskId, 0) ?: return SwapResult.Failed("move-stack failed")
+                val o = runMove(bottomTaskId, 0) ?: return SwapResult.Failed("${FAILURE_MOVE_PREFIX}failed")
                 if (o.contains("Exception")) {
                     SwapResult.Failed(o.take(120))
                 } else {

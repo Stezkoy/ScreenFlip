@@ -207,8 +207,18 @@ class FlipService : Service() {
                                     SwapMode.BOTTOM_TO_TOP -> R.string.toast_no_bottom_app
                                 }
                             )
-                        is SwapResult.Failed ->
-                            context.getString(R.string.toast_failed, result.reason)
+                        is SwapResult.Failed -> {
+                            // The raw reason is technical (vendor shell /
+                            // engine identifier): keep it in logcat and show
+                            // a localized message when the cause is known.
+                            Log.w(TAG, "Swap failed: ${result.reason}")
+                            val localized = swapFailureStringRes(result.reason)
+                                ?.let(context::getString)
+                            context.getString(
+                                R.string.toast_failed,
+                                localized ?: result.reason
+                            )
+                        }
                     }
                     _lastSwapMessage.value = message
                     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
