@@ -26,6 +26,9 @@ overlays!
   (Material You) accent color
 - **PServer diagnostics** — one-tap check that the OEM swap backend is
   present on the device
+- **Built-in updater** — checks GitHub every 24 hours, shows an update
+  notification, and downloads / installs the new APK in a dialog with
+  progress (no Obtainium required)
 
 ## How it works
 

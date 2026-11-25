@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -52,6 +53,8 @@ import com.screenflip.app.service.FlipService
 import com.screenflip.app.swap.PServerClient
 import com.screenflip.app.swap.SwapMode
 import com.screenflip.app.theme.ScreenFlipTheme
+import com.screenflip.app.update.UpdateDialog
+import com.screenflip.app.update.UpdateInstaller
 import com.screenflip.app.update.UpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,6 +71,10 @@ class MainActivity : ComponentActivity() {
     // checkSelfPermission() cannot be called here (it would NPE).
     private val notificationPermissionGranted = mutableStateOf(false)
 
+    // Driven by the update notification (EXTRA_SHOW_UPDATE_DIALOG) and by
+    // the "Update" button in the updates card.
+    private val showUpdateDialog = mutableStateOf(false)
+
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             notificationPermissionGranted.value = hasNotificationPermission()
@@ -77,8 +84,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         notificationPermissionGranted.value = hasNotificationPermission()
         // Rate-limited (24h) automatic check for a newer GitHub release.
+        // The same check also runs every 24h in the background through
+        // WorkManager (see UpdateManager.scheduleAutoCheck()).
         UpdateManager.init(this)
         UpdateManager.checkForUpdates(force = false)
+        showUpdateDialog.value = shouldShowUpdateDialog(intent)
         val darkTheme = applyThemeFromPrefs()
         // targetSdk 35 forces edge-to-edge on Android 15; opt in explicitly
         // on every version and let the Compose root apply the insets.
@@ -89,6 +99,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MainScreen(
                 hasNotificationPermission = notificationPermissionGranted.value,
+                showUpdateDialog = showUpdateDialog.value,
+                onShowUpdateDialogChange = { showUpdateDialog.value = it },
                 onRequestNotifications = {
                     requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 },
@@ -99,6 +111,24 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (shouldShowUpdateDialog(intent)) {
+            showUpdateDialog.value = true
+        }
+    }
+
+    /** True when the activity was opened by the update notification. */
+    private fun shouldShowUpdateDialog(intent: Intent?): Boolean =
+        intent?.getBooleanExtra(EXTRA_SHOW_UPDATE_DIALOG, false) == true &&
+            UpdateManager.updateAvailable.value
+
+    companion object {
+        /** Set by the "update available" notification. */
+        const val EXTRA_SHOW_UPDATE_DIALOG = "show_update_dialog"
     }
 
     private fun systemBarStyle(darkTheme: Boolean): SystemBarStyle =
@@ -141,6 +171,8 @@ class MainActivity : ComponentActivity() {
 @androidx.compose.runtime.Composable
 private fun MainScreen(
     hasNotificationPermission: Boolean,
+    showUpdateDialog: Boolean,
+    onShowUpdateDialogChange: (Boolean) -> Unit,
     onRequestNotifications: () -> Unit,
     onThemeChanged: () -> Unit
 ) {
@@ -168,12 +200,27 @@ private fun MainScreen(
     val latestReleaseInfo by UpdateManager.latestReleaseInfo.collectAsState()
     val isCheckingUpdates by UpdateManager.isChecking.collectAsState()
     val updateCheckError by UpdateManager.checkError.collectAsState()
+    val downloadState by UpdateInstaller.downloadState.collectAsState()
+    val installState by UpdateInstaller.installState.collectAsState()
 
     fun openReleasePage() {
         val url = latestReleaseInfo?.htmlUrl?.takeIf { it.isNotBlank() }
             ?: UpdateManager.FALLBACK_RELEASES_URL
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    /** Sends the user to "install unknown apps" for ScreenFlip. */
+    fun openInstallPermissionSettings() {
+        UpdateInstaller.clearInstallState()
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                )
+            )
         }
     }
 
@@ -424,7 +471,7 @@ private fun MainScreen(
                         isCheckingUpdates -> stringResource(R.string.checking_updates)
                         updateAvailable -> stringResource(
                             R.string.update_available_tag,
-                            latestReleaseInfo?.tagName ?: ""
+                            latestReleaseInfo?.displayVersion ?: ""
                         )
                         updateCheckError != null -> stringResource(R.string.update_check_failed)
                         latestReleaseInfo != null -> stringResource(R.string.up_to_date)
@@ -457,7 +504,7 @@ private fun MainScreen(
                 Button(
                     onClick = {
                         when {
-                            updateAvailable -> openReleasePage()
+                            updateAvailable -> onShowUpdateDialogChange(true)
                             else -> UpdateManager.checkForUpdates(force = true)
                         }
                     },
@@ -484,6 +531,21 @@ private fun MainScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.End
+        )
+    }
+
+    val release = latestReleaseInfo
+    if (showUpdateDialog && updateAvailable && release != null) {
+        UpdateDialog(
+            info = release,
+            downloadState = downloadState,
+            installState = installState,
+            onDownload = { UpdateInstaller.download(context, release) },
+            onCancelDownload = { UpdateInstaller.cancelDownload() },
+            onInstall = { UpdateInstaller.install(context) },
+            onAllowInstall = { openInstallPermissionSettings() },
+            onOpenGithub = { openReleasePage() },
+            onDismiss = { onShowUpdateDialogChange(false) }
         )
     }
     }

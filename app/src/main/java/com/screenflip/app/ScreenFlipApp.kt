@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.screenflip.app.service.FlipService
 import com.screenflip.app.swap.SwapMode
+import com.screenflip.app.update.UpdateManager
 
 /**
  * Application entry point for ScreenFlip.
@@ -21,6 +22,10 @@ class ScreenFlipApp : Application() {
         super.onCreate()
         appContext = this
         prefs = this.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        // Update state must be ready before the daily background worker or a
+        // notification tap can land in the activity.
+        UpdateManager.init(this)
+        UpdateManager.scheduleAutoCheck()
         // Start the foreground service right away so that the TCC button
         // receiver and the QS tile have a live target.
         startFlipServiceIfNeeded()
